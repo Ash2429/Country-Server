@@ -1,0 +1,36 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  api:
+    build: .
+    image: country-server:latest
+    command: ["server"]
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-country_server}
+      API_KEY: ${API_KEY:-changeme}
+
+  scheduler:
+    build: .
+    image: country-server:latest
+    entrypoint: ["/code/scheduler.sh"]
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-country_server}
+
+volumes:
+  mongo_data:

@@ -1,0 +1,111 @@
+input AddCountryInput {
+  name: String!
+  alpha3Code: String!
+  alpha2Code: String = null
+  capital: String = null
+  region: String = null
+  subregion: String = null
+  area: Float = null
+  population: Int = null
+  currencies: [CurrencyInput!] = null
+  languages: [LanguageInput!] = null
+  latitude: Float = null
+  longitude: Float = null
+}
+
+type Country {
+  id: String!
+  name: String!
+  nativeName: String
+  alpha2Code: String
+  alpha3Code: String!
+  numericCode: String
+  capital: String
+  region: String
+  subregion: String
+  area: Float
+  population: Int
+  populationDensity: Float
+  gini: Float
+  demonym: String
+  currencies: [Currency!]!
+  languages: [Language!]!
+  latitude: Float
+  longitude: Float
+  timezones: [String!]!
+  borders: [String!]!
+  callingCodes: [String!]!
+  topLevelDomain: [String!]!
+  flag: String
+  flags: Flags
+  independent: Boolean
+}
+
+type CountryDistance {
+  country: Country!
+  distanceKm: Float!
+}
+
+type CountryPage {
+  items: [Country!]!
+  totalCount: Int!
+  limit: Int!
+  offset: Int!
+}
+
+type CountrySummary {
+  id: String!
+  name: String!
+}
+
+type Currency {
+  code: String
+  name: String
+  symbol: String
+}
+
+type CurrencyGroup {
+  currencyCode: String!
+  currencyName: String
+  currencySymbol: String
+  countryCount: Int!
+  countries: [CountrySummary!]!
+}
+
+input CurrencyInput {
+  code: String = null
+  name: String = null
+  symbol: String = null
+}
+
+type Flags {
+  png: String
+  svg: String
+}
+
+type Language {
+  name: String!
+  iso639_1: String
+  iso639_2: String
+  nativeName: String
+}
+
+input LanguageInput {
+  name: String!
+  iso639_1: String = null
+  iso639_2: String = null
+  nativeName: String = null
+}
+
+type Mutation {
+  addCountry(input: AddCountryInput!): Country!
+  updateCountryName(id: String!, name: String!): Country!
+}
+
+type Query {
+  countries(limit: Int! = 25, offset: Int! = 0): CountryPage!
+  country(id: String!): Country
+  countriesNearby(latitude: Float!, longitude: Float!, limit: Int! = 5): [CountryDistance!]!
+  countriesByLanguage(language: String!): [Country!]!
+  countriesByCurrency: [CurrencyGroup!]!
+}
