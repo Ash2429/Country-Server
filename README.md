@@ -1,33 +1,81 @@
-# Testing
+# Country Server
 
-## Prerequisites
+GraphQL service for ingesting and querying country data, backed by MongoDB.
 
-Mongo needs to be running before you test anything — startup builds indexes on
-the `countries` collection (see the lifespan hook in `app/main.py`), so even
-the `/health` check needs a live DB connection.
+## Architecture
+
+- **`app/graphql`** — Strawberry schema, queries, and mutations. Each request
+  gets its own `GraphQLContext` (`app/graphql/context.py`) holding a
+  `CountryService` and a `CountryLoader`.
+- **`app/services`** — business rules and input validation
+  (`CountryService`), independent of both GraphQL and Mongo specifics.
+- **`app/repositories`** — the only layer that talks to Motor/MongoDB
+  (`CountryRepository`, `IngestionRunRepository`); owns index creation and
+  query/aggregation pipelines (`$geoNear`, currency grouping, etc.).
+- **`app/models`** — `country.py` holds inbound schemas (`CountryIn` from the
+  source API, `CountryCreate` from the `addCountry` mutation);
+  `documents.py` holds the outbound schemas read back from Mongo.
+- **DataLoader** — `country(id)` resolves through `CountryLoader`
+  (`strawberry.dataloader.DataLoader`), so multiple `country(id)` lookups in
+  one GraphQL request batch into a single `$in` query instead of N
+  round-trips.
+- **`app/ingestion`** — the sync job is decoupled from the API process:
+  `source.py` fetches from `COUNTRIES_SOURCE_URL`, `sync.py` validates each
+  record and upserts via `CountryRepository.upsert_many`, then records an
+  `IngestionRun`. Triggered by `app cron` (see Makefile) or, in Docker
+  Compose, the `scheduler.sh` loop (every 30 minutes) — a separate container
+  from `api`.
+- **`app/main.py`** — wires the FastAPI app, mounts the GraphQL router, and
+  gates `/graphql` behind an `X-API-Key` header check.
+
+## Running it
+
+### Quickstart (Docker Compose)
 
 ```bash
-make up      # or: docker compose up -d mongo
+cp .env.example .env   # adjust values if needed
+make up                 # docker compose up -d: mongo + api + scheduler
 ```
 
-## Running the tests
+- GraphQL: `http://localhost:8000/graphql`, requires an `X-API-Key` header
+  matching `API_KEY` (see Configuration below).
+- Health check (no API key needed): `curl http://localhost:8000/health`
+- The `scheduler` container runs `app cron` on a loop (`scheduler.sh`, every
+  30 minutes) in its own container, separate from `api`.
+
+Other Compose targets: `make down`, `make build`, `make logs`.
+
+### Local development
 
 ```bash
-make test    # or: uv run pytest
+make install            # uv sync
+docker compose up -d mongo   # only Mongo, run the API/cron locally instead
+make run                 # uv run uvicorn app.main:app --reload
 ```
 
-## What's covered
+### Running the ingestion job manually
 
-- `tests/test_health.py` boots the app with `TestClient` and checks
-  `GET /health` returns `200 {"status": "ok"}`. If Mongo isn't reachable it
-  skips instead of failing, so `pytest` still passes on a machine without
-  Mongo running.
+```bash
+make cron                # uv run app cron — fetches, validates, and
+                          # upserts countries, then records an IngestionRun
+```
 
-## GraphQL
+### Regenerating the schema file
 
-No automated tests for the resolvers yet — queries and mutations
-(pagination, `country(id)`, `countriesNearby`, `countriesByLanguage`,
-`addCountry`, `updateCountryName`, and their error cases) were checked
-manually against a local Mongo instance. `schema.graphqls` has the current
-schema. Adding resolver-level tests (e.g. with `mongomock`) is the obvious
-next step.
+```bash
+make schema               # regenerates schema.graphqls from the live schema
+```
+
+## Configuration
+
+Environment variables (see `.env.example`), all optional with defaults baked
+into `app/settings.py`:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MONGO_URI` | `mongodb://localhost:27017` | Mongo connection string |
+| `MONGO_DB_NAME` | `country_server` | Database name |
+| `APP_PORT` | `8000` | Port the API listens on |
+| `COUNTRIES_SOURCE_URL` | `https://www.apicountries.com/countries` | Ingestion source (currently redirects to `countries.dev`) |
+| `MAX_PAGE_SIZE` | `100` | Cap on `limit` args for paginated/nearby queries |
+| `API_KEY` | `changeme` | Required `X-API-Key` header value for `/graphql` |
